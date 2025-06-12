@@ -9,21 +9,9 @@ import numpy as np
 import rospy
 from ds_server1 import DSserver1
 from ds_server2 import DSserver2
-
-from yolo_result_server import YoloResultServer
 from geometry_msgs.msg import PoseStamped, Twist, Pose2D
 from fusion.srv import nav_result, nav_resultResponse
-from fusion.srv import BBox, BBoxResponse, BBoxRequest
-from fusion.srv import get_action, get_actionResponse, get_actionRequest
-from fusion.srv import movement, movementResponse, movementRequest
-from move_robot import MoveRobot
 
-# import tf2_geometry_msgs
-
-# import tf.transformations as tf
-# https://blog.csdn.net/clashes/article/details/134784496
-# 已经git clone成功叻。就差将其在pytorch虚拟环境python3下编译并链接叻
-# from tf import TransformListener
 from autoware_msgs.msg import PointsImage
 
 import math
@@ -425,13 +413,13 @@ def get_probs_array(item_list, image_pose_dict):
     return probs_array
 
 
-def pub_pose(target_pose_list, last_target, turtlebot_move):
+def pub_pose(target_pose_list, last_target):
     global point_cloud_msg
     # 接受目标列表、局部路径目标、导航动作代理；
-    target_dict = {'AlarmClock': 'clock', 'Book': 'book', 'Bowl': 'bowl', 'CellPhone': 'cell phone', 'Chair': 'chair', 'Fridge': 'refrigerator', 'Laptop': 'laptop', 'Microwave': 'microwave', 'Pot': 'pot', 'Sink': 'sink', 'Television': 'tv', 'Toaster': 'toaster', 'Fan': 'fan', 'Bookshelf': 'bookshelf', 'Person': 'person', 'Suitcase': 'suitcase', 'Person': 'person'}
+    target_dict = {'AlarmClock': 'clock', 'Book': 'book', 'Bowl': 'bowl', 'CellPhone': 'cell phone', 'Chair': 'chair', 'Fridge': 'refrigerator', 'Laptop': 'laptop', 'Microwave': 'microwave', 'Pot': 'pot', 'Sink': 'sink', 'Television': 'tv', 'Toaster': 'toaster', 'Fan': 'fan', 'Bookshelf': 'bookshelf', 'Bottle': 'bottle', 'Suitcase': 'suitcase', 'Person': 'person'}
 
     yolo_target = target_dict[last_target]
-    r = rospy.Rate(50)
+    r = rospy.Rate(1)
     R = rospy.Rate(0.15)
     for index, target_pose in enumerate(target_pose_list):
         pose = PoseStamped()
@@ -452,7 +440,7 @@ def pub_pose(target_pose_list, last_target, turtlebot_move):
             # 到达终点时候推出循环，否则一直等待
             if is_first == True:
                 # 为避免接受上次导航结束时未及时更新的信息，首次导航时添加个间歇时间5s
-                print("正在前往第{}个目标.".format(index))
+                print("正在前往第{}个目标.".format(index + 1))
                 R.sleep()
                 is_first = False
             r.sleep()
@@ -462,100 +450,7 @@ def pub_pose(target_pose_list, last_target, turtlebot_move):
                 print("get destination :", index)
                 R.sleep()
                 break
-
-    # 全局路径规划结束，使用未知环境下的导航方法进行局部路径导航以找到目标last_target
-
-    yolo_request = BBoxRequest()
-    yolo_request.target = yolo_target
-
-
-    rospy.sleep(2)
-
-    yolo_result = yolo_client.call(yolo_request)
-    # 当点云映射到框内，获取距离，并将坐标系转为map坐标系下发布导航点
-    dis = 0.0
-    if yolo_result.num == 111:
-    # 检测到目标物时，通过点云处理话题获取距离；通过检测框确定目标偏航角theta，组成欧拉角（0, 0, theta）后转成四元组，在通过距离计算x、y、z值；最后再将base_link坐标系下得点转换为map坐标系下得坐标点
-        #dis = 0.0
-        cnt = 0
-        for i in range(len(point_cloud_msg.distance)):
-            if point_cloud_msg.distance[i] != 0:
-                width = i % 640
-                height = i // 640
-                if width >= yolo_result.xmin and width <= yolo_result.xmax and height >= yolo_result.ymin and height <= yolo_result.ymax:
-                    dis += point_cloud_msg.distance[i]
-                    cnt = cnt + 1
-        dis = (dis / cnt) / 200  # 计算框内均值并将dis单位转为m
-        print("与目标直线距离为：{}".format(dis))
-        print("xmin={}".format(yolo_result.xmin))
-        print("xmax={}".format(yolo_result.xmax))
-        print("ymin={}".format(yolo_result.ymin))
-        print("ymax={}".format(yolo_result.ymax))
-        
-    # 请求并计算点云获取的旋转和距离结果
-    xmid = (yolo_result.xmax + yolo_result.xmin) // 2
-    radian = (xmid - 320) * 0.0036813
-    
-    flag = False
-    if radian < 0:
-        flag = True
-
-    radian_speed = 0.5
-    duration_radian = abs(radian)/ radian_speed
-    duration_radian = duration_radian / 2
-
-    linear_speed = 0.3
-    duration_linear = dis / linear_speed
-    duration_linear = duration_linear * 0.7
-    print("rotate and move duration is:", duration_radian, duration_linear)
-            
-            #控制小车进行移动
-    robot = MoveRobot()
-    robot.rotate(radian_speed, duration_radian, flag)
-    robot.move(linear_speed, duration_linear)
-    print("--------get destination!--------")
-        
-    #listener = tf.TransformListener()
-    #listener.waitForTransform('map', 'base_link', rospy.Time(0), rospy.Duration(4.0))
-    #last_pose = PoseStamped()
-    #last_pose.header.frame_id = 'base_link'
-    
-
-    #xmid = (yolo_result.xmin + yolo_result.xmax) / 2
-    #ymid = (yolo_result.ymin + yolo_result.ymax) / 2
-
-    #通过角度计算当前坐标系下的x
-    #x = abs(xmid - 320)
-    #angle_radians_x = math.atan(x * 1.732/ 320)      #1.732 = tan(水平角/2) 水平角为90度时是1
-    #theta_x = math.degrees(angle_radians_x)
-    #last_pose.pose.position.x = abs(math.cos(theta_x) * dis)
-        
-    #通过角度计算当前坐标系下的y
-    #y = abs(ymid - 240)
-    #angle_radians_y = math.atan(y * 1/ 240)      #1 = tan(垂直角90 /2) 
-    #theta_y = math.degrees(angle_radians_y)
-
-    #rospy.loginfo("last_Pose: {}".format(theta_y))
-
-    #last_pose.pose.position.y = abs(math.cos(theta_y) * dis / 3)
-    #if xmid < 320:
-    #    last_pose.pose.position.y = last_pose.pose.position.y * (-1)
-    
-    #q = tf.transformations.quaternion_from_euler(0, 0, 0)
-    #last_pose.pose.position.z = 0
-    #last_pose.pose.orientation.x = 0
-    #last_pose.pose.orientation.y = 0
-    #last_pose.pose.orientation.z = q[2]
-    #last_pose.pose.orientation.w = q[3]
-    #rospy.loginfo("last_Pose: {}".format(last_pose))
-    #last_pose.header.stamp = rospy.Time.now()
-        
-    #last_pose_map = PoseStamped()
-    #last_pose_map = listener.transformPose('map', last_pose)
-    #rospy.loginfo("transform to map Pose: {}".format(last_pose_map))
-    #pub.publish(last_pose_map)
-    #print("Success! publish last pose and starting Navigation")
-    #print("Navigation completed")
+    print("Navigation completed")
 
 
 def getorientation_set(path, target_pose_index, orientation):
@@ -615,16 +510,9 @@ if __name__ == '__main__':
     gpt = DSserver1()
     gpt2 = DSserver2()
 
-    rospy.Subscriber("/points_image", PointsImage, point_cloud_callback)  ##获取点云信息，在局部路径规划中计算实际目标距离
     pub = rospy.Publisher('/move_base_simple/goal', PoseStamped, queue_size=5)
     target_client = rospy.ServiceProxy("/gettarget", nav_result)
     target_client.wait_for_service()
-    # 输入一个字符目标，判断是否出现在当前图像中，作为局部路径规划结束的条件
-    yolo_client = rospy.ServiceProxy("/YoloResult", BBox)
-    yolo_client.wait_for_service()
-    # 输入一个字符目标，提供网络模型推理服务，得出所需要执行的动作，改写自华伟main.py
-    # action_client = rospy.ServiceProxy("/getaction", get_action)
-    # action_client.wait_for_service()
 
     path = '/home/rob/lim_ws/src/fusion/scripts/pose/lab/goals.txt'
     # 初始化所有节点
@@ -652,24 +540,6 @@ if __name__ == '__main__':
         image_path = '/home/rob/lim_ws/src/fusion/scripts/images/lab/target_image' + str(target) + '.png'
         target_pose_list.append(image_pose_dict[image_path])
 
-    # 局部路径规划对象初始化
-    movement_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=1)
-    sub_odometry = rospy.Subscriber('/odom', Odometry, OdomCallBack)
-    rate = rospy.Rate(10)
-    turtlebot_move = TurtleBot2Move(movement_pub, rate)
-    turtlebot_move.Initialize()
-
-    # tcp连接局部规划推理机
-    #port = 12345
-    #ip = "10.3.51.126"
-    #response = b"1"
-    #client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    #try:
-    #    client.connect((ip, port))
-    #    rospy.loginfo("Socket connected successfully!")
-    #except socket.error as e:
-    #    rospy.logerr("Socket connection failed!")
-    #    time.sleep(10)
 
     # 执行导航，结束后执行局部路径规划
-    pub_pose(target_pose_list, target_list[-1], turtlebot_move)
+    pub_pose(target_pose_list, target_list[-1])
