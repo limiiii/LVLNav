@@ -63,7 +63,7 @@ cd lingao_3D_16lines/lingaonav_ws
 source ./devel/setup.bash
 roslaunch car_2dnav lingao_2dnav.launch path:=/home/rob/mapping/realworld/final1_bt.bt
 ```
-打开rviz给定初始位姿
+打开rviz给定初始位姿（可以参考本目录下的.rviz文件）
 ```
 rviz -d lslidar.rviz
 ```
